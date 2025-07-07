@@ -78,18 +78,17 @@ Continue with the same JSON format.
 `;
 }
 
-//Helper: Call Ollama's phi model and collect the full response
-async function callPhiModel(prompt) {
+// Helper: Call Ollama's Llama 3.3 70B model and collect the full response
+async function callLlamaModel(prompt) {
   const response = await axios.post(
     "http://localhost:11434/api/generate",
     {
-      model: "phi",
+      model: "llama3:70b",
       prompt: prompt,
       stream: false,
     },
     { timeout: 120000 * 2 }
   );
-  // Ollama returns { response: "...", ... }
   return response.data.response;
 }
 
@@ -106,25 +105,21 @@ app.post("/api/story/start", async (req, res) => {
     const sessionId = uuidv4();
     const systemPrompt = generateSystemPrompt(quizAnswers);
 
-    // Compose the initial prompt for phi
     const userPrompt =
       "Start an engaging story that will challenge my perspectives. Begin with a compelling opening scenario.";
     const fullPrompt = systemPrompt + "\n" + userPrompt;
 
-    // Call phi model
-    const phiResponse = await callPhiModel(fullPrompt);
+    const llmResponse = await callLlamaModel(fullPrompt);
 
-    // Try to parse JSON from phi's response
     let storyData;
     try {
-      storyData = JSON.parse(phiResponse);
+      storyData = JSON.parse(llmResponse);
     } catch {
-      // If phi's output is not valid JSON, try to extract JSON substring
-      const match = phiResponse.match(/\{[\s\S]*\}/);
+      const match = llmResponse.match(/\{[\s\S]*\}/);
       if (match) {
         storyData = JSON.parse(match[0]);
       } else {
-        throw new Error("Phi model did not return valid JSON.");
+        throw new Error("Model did not return valid JSON.");
       }
     }
 
@@ -135,7 +130,7 @@ app.post("/api/story/start", async (req, res) => {
       conversation: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
-        { role: "assistant", content: phiResponse },
+        { role: "assistant", content: llmResponse },
       ],
       currentStep: 1,
       createdAt: new Date().toISOString(),
@@ -167,35 +162,30 @@ app.post("/api/story/continue", async (req, res) => {
       return res.status(404).json({ error: "Story session not found" });
     }
 
-    // Compose the prompt for continuation
     const previousChoice = `I chose option ${choiceId}: "${choiceText}"`;
     const continuationPrompt = generateContinuationPrompt(previousChoice);
 
-    // Build conversation context (system + all previous user/assistant turns)
     let contextPrompt = session.conversation
       .map((msg) => msg.content)
       .join("\n\n");
     contextPrompt += "\n\n" + continuationPrompt;
 
-    // Call phi model
-    const phiResponse = await callPhiModel(contextPrompt);
+    const llmResponse = await callLlamaModel(contextPrompt);
 
-    // Try to parse JSON from phi's response
     let storyData;
     try {
-      storyData = JSON.parse(phiResponse);
+      storyData = JSON.parse(llmResponse);
     } catch {
-      const match = phiResponse.match(/\{[\s\S]*\}/);
+      const match = llmResponse.match(/\{[\s\S]*\}/);
       if (match) {
         storyData = JSON.parse(match[0]);
       } else {
-        throw new Error("Phi model did not return valid JSON.");
+        throw new Error("Model did not return valid JSON.");
       }
     }
 
-    // Update session
     session.conversation.push({ role: "user", content: previousChoice });
-    session.conversation.push({ role: "assistant", content: phiResponse });
+    session.conversation.push({ role: "assistant", content: llmResponse });
     session.currentStep += 1;
     storySessions.set(sessionId, session);
 
@@ -246,5 +236,7 @@ app.get("/health", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Story server running on port ${PORT}`);
-  console.log(`📖 Ready to create perspective-changing stories with phi!`);
+  console.log(
+    `📖 Ready to create perspective-changing stories with Llama 3.3 70B!`
+  );
 });
